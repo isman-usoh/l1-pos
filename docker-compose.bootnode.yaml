@@ -1,0 +1,93 @@
+version: "3.9"
+name: bootnode
+networks:
+  mainnet:
+    name: mkchain_default 
+    external: true
+
+services:
+  geth-genesis:
+    image: "ethereum/client-go:latest"
+    command: --datadir=/execution init /execution/genesis.json
+    container_name: bootnode-init
+    networks:
+      - mainnet
+    volumes:
+      - ./bootnode/execution:/execution
+      - ./execution/genesis.json:/execution/genesis.json
+
+  beacon-chain:
+    image: "gcr.io/prysmaticlabs/prysm/beacon-chain:v4.1.1"
+    container_name: bootnode-beacon
+    networks:
+      - mainnet
+    command:
+      - --datadir=/consensus/beacondata
+      - --min-sync-peers=1
+      - --genesis-state=/consensus/genesis.ssz
+      - --bootstrap-node=
+      - --interop-eth1data-votes
+      - --chain-config-file=/consensus/config.yml
+      - --contract-deployment-block=0
+      - --chain-id=32382
+      - --rpc-host=0.0.0.0
+      - --grpc-gateway-host=0.0.0.0
+      - --execution-endpoint=http://bootnode-geth:8551
+      - --accept-terms-of-use
+      - --jwt-secret=/execution/jwtsecret
+      - --suggested-fee-recipient=0x123463a4b065722e99115d6c222f267d9cabb524
+      - --minimum-peers-per-subnet=0
+      - --enable-debug-rpc-endpoints
+      - --peer=enr:-MK4QEVG5dZjsWMiuHhawFo3nQR3yAsCjzjUltBeZ3nnuSBRNZsy8lFnnsFf_hcQANGhRSOZi7fjY5njcD3-fYtSc4yGAY1mF7mJh2F0dG5ldHOIAAAAAAAAAACEZXRoMpBa8xKTIAAAk___________gmlkgnY0gmlwhKwaAAOJc2VjcDI1NmsxoQKCpQawSXj1YjAD6DJ6jT_plvYKdAxbf7w6mlh_n0Nm64hzeW5jbmV0cwCDdGNwgjLIg3VkcIIu4A
+      - --force-clear-db
+      - --p2p-tcp-port=12001
+      - --p2p-udp-port=12001
+    ports:
+      - 14000:4000
+      - 13500:3500
+      - 18080:8080
+      - 16060:6060
+      - 19090:9090
+      - 12001:12001/udp
+      - 13001:13001
+    volumes:
+      - ./bootnode/consensus:/consensus
+      - ./bootnode/execution:/execution
+      - ./consensus/genesis.ssz:/consensus/genesis.ssz
+      - ./consensus/config.yml:/consensus/config.yml
+      - ./execution/jwtsecret:/execution/jwtsecret
+
+  # Runs the go-ethereum execution client with the specified, unlocked account and necessary
+  # APIs to allow for proof-of-stake consensus via Prysm.
+  geth:
+    image: "ethereum/client-go:latest"
+    container_name: bootnode-geth
+    networks:
+      - mainnet
+    command:
+      - --port=40303
+      - --http
+      - --http.api=eth,net,web3
+      - --http.addr=0.0.0.0
+      - --http.corsdomain=*
+      - --authrpc.vhosts=*
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.jwtsecret=/execution/jwtsecret
+      - --datadir=/execution
+      - --bootnodes=enode://2569812148dcc1ad705dfb2900cef728c022a966221b008e16dd241219771798644d95a22dd70a8d1655c8afb31059a7f9b623e8030440ee18c2668bc7e0ca16@172.26.0.5:30303
+      - --syncmode=full
+    ports:
+      - 4551:8551
+      - 4545:8545
+      - 4546:8546
+      - 40303:30303
+      - 40303:30303/udp
+    depends_on:
+      geth-genesis:
+        condition: service_completed_successfully
+      beacon-chain:
+        condition: service_started
+    volumes:
+      - ./bootnode/execution:/execution
+      - ./execution/jwtsecret:/execution/jwtsecret
+      - ./execution/geth_password.txt:/execution/geth_password.txt
